@@ -35,41 +35,47 @@ def get_positions(graph) -> dict:
         positions[p] = tuple([float(y) for y in graph.nodes.data()[p]['position'][1:-1].split(',')])
     return positions
 
-def get_sorted_freq(graph):
+def get_sorted_freq_graph(graph):
     classes = list(dict(graph.nodes.data('disclass')).values())
     sorted_classes = dict(sorted(Counter(classes).items(), key=lambda x: x[1], reverse=True))
     return list(sorted_classes.keys()), list(sorted_classes.values())
 
+def get_sorted_freq_comm_size(communities):
+    
+    return sorted(list(map(len, communities)), reverse=True)
+
 def encoded_classes(graph):
-    cc, _ = get_sorted_freq(graph)
+    cc, _ = get_sorted_freq_graph(graph)
     values = list(dict(graph.nodes.data('disclass')).values())
     encoded_classes = {v: i for i, v in enumerate(cc)}
     results = {i: encoded_classes[v] for i, v in enumerate(values)}
     return {'encoded_class': results}
 
 def create_subgraph_with_classes(graph, classes: list):
-    return graph.subgraph(get_subgraph_nodes(graph, classes))
+    return graph.subgraph(get_subgraph_nodes(graph, 'disclass', classes))
 
 def create_subgraph_with_nodes(graph, nodes: list):
     return graph.subgraph(nodes)
 
-def get_subgraph_nodes(graph, classes: list):
+def get_subgraph_nodes(graph, attribute, classes: list):
     classes = set(classes)
-    graph_nodes = dict(graph.nodes.data('disclass'))
+    graph_nodes = dict(graph.nodes.data(attribute))
     nodes_wanted = [k for k,v in graph_nodes.items() if graph_nodes[k] in classes]
 
     return nodes_wanted
 
-def get_metadata_communities(graph):
-    classes = set(list(dict(graph.nodes.data('disclass')).values()))
+def get_communities_sequence(graph, attribute):
+    classes = set(list(dict(graph.nodes.data(attribute)).values()))
     community_list = []
     for c in classes:
-        community_list.append(set(get_subgraph_nodes(graph, [c])))
+        community_list.append(set(get_subgraph_nodes(graph, attribute, [c])))
 
     return community_list
 
 def get_densities(graph, communities, num_ps):
     classes = range(len(communities))
+    
+    edges = len(graph.edges())
 
     communities = sorted(communities, key=lambda x: len(x), reverse=True)
     combinations = list(product(classes, classes))
@@ -96,6 +102,57 @@ def get_densities(graph, communities, num_ps):
 
     probs = np.array(probs).reshape(-1, num_ps)
     probs_diagsum = np.sum(np.diagonal(probs))
-    probs = probs / probs_diagsum
+    probs = probs / edges
 
     return probs
+
+def get_properties(graphs, community_sequence):
+    coverage_array = np.zeros(100)
+    performance_array = np.zeros(100)
+    modularity_array = np.zeros(100)
+    clust_array = np.zeros(100)
+    assortativity_array = np.zeros(100)
+    avgdeg_array = np.zeros(100)
+
+    degcentr_array = np.zeros(len(graphs[0]))
+    clcentr_array = np.zeros(len(graphs[0]))
+    betcentr_array = np.zeros(len(graphs[0]))
+    
+    number_of_graphs = len(graphs)
+    
+    for i, n in enumerate(graphs):
+
+        #properties
+        coverage, performance = nx.algorithms.community.quality.partition_quality(n, community_sequence[i])
+        modularity = nx.algorithms.community.quality.modularity(n, community_sequence[i])
+        clust = nx.average_clustering(n)
+        assortativity = nx.degree_pearson_correlation_coefficient(n)
+        avgdeg = avg_degree(n)
+
+        #centralities
+        deg_centr = nx.degree_centrality(n)
+        cl_centr = nx.closeness_centrality(n)
+        bet_centr = nx.betweenness_centrality(n)
+
+        coverage_array[i] = coverage
+        performance_array[i] = performance
+        modularity_array[i] = modularity
+        clust_array[i] = clust
+        assortativity_array[i] = assortativity
+        avgdeg_array[i] = avgdeg
+        degcentr_array += list(deg_centr.values())
+        clcentr_array += list(cl_centr.values())
+        betcentr_array += list(bet_centr.values())
+        
+    return {'coverage': np.mean(coverage_array),
+            'performance': np.mean(performance_array),
+            'modularity': np.mean(modularity_array),
+            'clustering': np.mean(clust_array),
+            'assortativity': np.mean(assortativity_array),
+            'average degree': np.mean(avgdeg_array),
+            'degree centrality': degcentr_array / number_of_graphs,
+            'closeness centrality': clcentr_array / number_of_graphs,
+            'betweenness centrality': betcentr_array / number_of_graphs}
+
+            
+            
